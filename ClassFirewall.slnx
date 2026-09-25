@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/解决方案项/">
+    <File Path="SniProxy.cs" />
+  </Folder>
+  <Project Path="ClassFirewall.csproj" />
+</Solution>
