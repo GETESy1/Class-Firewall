@@ -51,13 +51,18 @@ DNS 结果缓存 60 秒。黑名单支持**实时更新**：勾选/取消勾选�
 > `www.douyin.com`、`api-hl.amemv.douyin.com`、以及随便什么 `.douyin.com` 都会被拦。
 
 **所以新增站点时，优先只写基础域名（两段式），不要逐个列举子域名。** 在 `SiteCatalog.cs` 里加一条记录即可：
-    Name = "某某娱乐",
-    Domains = new[]
-    {
-        "example.com",      // 主站：www / m / api 全部由它覆盖
-        "examplecdn.com"    // 独立 CDN 域名
-    }
-}
+```
+new SiteInfo
+            {
+                Name = "哔哩哔哩 (Bilibili)",
+                Domains = new[]
+                {
+                    "bilibili.com",     // 主站（www / m / api 等全部由它覆盖）
+                    "hdslb.com",        // 图片 CDN（含 i0 / i1 / i2）
+                    "bilivideo.com",    // 视频 CDN
+                    "b23.tv"            // 短链
+                }
+            },
 ```
 
 ### 唯一的例外：共用基础域名不能整片封
