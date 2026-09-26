@@ -156,7 +156,7 @@
 ```csharp
 new SiteInfo
 {
-    Name = "某某娱乐",
+    Name = "example",
     Domains = new[]
     {
         "example.com",      // 主站：www / m / api 全部由它覆盖
