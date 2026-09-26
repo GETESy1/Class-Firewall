@@ -51,7 +51,7 @@ DNS 结果缓存 60 秒。黑名单支持**实时更新**：勾选/取消勾选�
 > `www.douyin.com`、`api-hl.amemv.douyin.com`、以及随便什么 `.douyin.com` 都会被拦。
 
 **所以新增站点时，优先只写基础域名（两段式），不要逐个列举子域名。** 在 `SiteCatalog.cs` 里加一条记录即可：
-```
+```C#
 new SiteInfo
             {
                 Name = "哔哩哔哩 (Bilibili)",
