@@ -1,4 +1,4 @@
-# Class Firewall
+# Class Firewall (CFW)
 
 面向**班级 / 家庭**场景的 Windows 网站屏蔽工具。
 
@@ -51,10 +51,6 @@ DNS 结果缓存 60 秒。黑名单支持**实时更新**：勾选/取消勾选�
 > `www.douyin.com`、`api-hl.amemv.douyin.com`、以及随便什么 `.douyin.com` 都会被拦。
 
 **所以新增站点时，优先只写基础域名（两段式），不要逐个列举子域名。** 在 `SiteCatalog.cs` 里加一条记录即可：
-
-```csharp
-new SiteInfo
-{
     Name = "某某娱乐",
     Domains = new[]
     {
@@ -198,3 +194,6 @@ bin\Release\net8.0-windows\win-x64\publish\ClassFirewall.exe
 5. **`app.manifest` 必须 UTF-8 无 BOM。**
 6. **碰 53 端口的释放要谨慎**，`PortHelper` 里保护了 `svchost` / `lsass` / `System` 等关键进程。
 7. **所有拦截 / 错误事件都带时间戳打到界面日志框**，排查问题几乎全靠它。
+
+**本项目使用了AI辅助**
+
