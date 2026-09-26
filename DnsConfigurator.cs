@@ -36,6 +36,23 @@ namespace ClassFirewall
             }
         }
 
+        /// <summary>清空系统 DNS 解析缓存</summary>
+        public static void FlushCache()
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("ipconfig", "/flushdns")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                using var p = Process.Start(psi);
+                p?.WaitForExit(5000);
+            }
+            catch { /* 忽略 */ }
+        }
+
         private static void RunNetsh(string args)
         {
             try

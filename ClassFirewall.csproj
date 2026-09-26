@@ -15,15 +15,27 @@
 
     <!-- ========== 单文件发布相关 ========== -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- SelfContained=true：目标电脑无需预装 .NET 8 运行时 -->
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <!-- 压缩仅允许在 SelfContained=true 时使用，否则报 NETSDK1176 -->
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
     <!-- ================================== -->
 
   </PropertyGroup>
+
+  <!-- ========== 已移除的功能（归档，不参与构建）==========
+       archive/ 里保存着 DPI/SNI 拦截、MITM 根证书 + 403 页面、
+       TUN 模式、外部 DNS 解析等已下线的实现。
+       屏蔽现在只依赖本地 DNS 一层，逻辑更简单也更可靠。
+       需要恢复时，把对应 .cs 移回项目根目录即可。 -->
+  <ItemGroup>
+    <Compile Remove="archive/**" />
+    <None Remove="archive/**" />
+  </ItemGroup>
 
 </Project>

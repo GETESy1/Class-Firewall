@@ -14,8 +14,7 @@ namespace ClassFirewall
         // SIO_UDP_CONNRESET: 让 Windows 不要在 UDP socket 上传播 ICMP 重置错误
         private const int SIO_UDP_CONNRESET = -1744830452;
 
-        private readonly ConcurrentDictionary<string, byte> _blacklist
-            = new(StringComparer.OrdinalIgnoreCase);
+        private readonly DomainMatcher _matcher = new();
 
         private readonly ConcurrentDictionary<string, CacheEntry> _cache
             = new(StringComparer.OrdinalIgnoreCase);
@@ -47,12 +46,7 @@ namespace ClassFirewall
 
         public DnsServer(int port = 53) { Port = port; }
 
-        public void UpdateBlacklist(IEnumerable<string> domains)
-        {
-            _blacklist.Clear();
-            foreach (var d in domains)
-                _blacklist[d.Trim().ToLowerInvariant()] = 1;
-        }
+        public void UpdateBlacklist(IEnumerable<string> domains) => _matcher.Update(domains);
 
         public void Start()
         {
@@ -193,18 +187,7 @@ namespace ClassFirewall
             catch { }
         }
 
-        private bool IsBlacklisted(string qname)
-        {
-            if (_blacklist.ContainsKey(qname)) return true;
-            int idx = qname.IndexOf('.');
-            while (idx > 0)
-            {
-                var suffix = qname.Substring(idx);
-                if (_blacklist.ContainsKey(suffix)) return true;
-                idx = qname.IndexOf('.', idx + 1);
-            }
-            return false;
-        }
+        private bool IsBlacklisted(string qname) => _matcher.IsBlocked(qname);
 
         private async Task<byte[]?> ForwardAsync(byte[] query, IPEndPoint client)
         {
