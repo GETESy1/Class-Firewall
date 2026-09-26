@@ -16,6 +16,7 @@ namespace ClassFirewall
         private System.Windows.Forms.CheckBox _blockToggle;
         private System.Windows.Forms.CheckBox _autoStartToggle;
         private System.Windows.Forms.CheckBox _autoBlockToggle;
+        private System.Windows.Forms.CheckBox _dohToggle;
         private System.Windows.Forms.FlowLayoutPanel _optionPanel;
         private System.Windows.Forms.TextBox _logBox;
 
@@ -40,6 +41,7 @@ namespace ClassFirewall
             _blockToggle = new System.Windows.Forms.CheckBox();
             _autoStartToggle = new System.Windows.Forms.CheckBox();
             _autoBlockToggle = new System.Windows.Forms.CheckBox();
+            _dohToggle = new System.Windows.Forms.CheckBox();
             _optionPanel = new System.Windows.Forms.FlowLayoutPanel();
             _logBox = new System.Windows.Forms.TextBox();
             _buttonsPanel.SuspendLayout();
@@ -156,6 +158,16 @@ namespace ClassFirewall
             _autoBlockToggle.TabIndex = 2;
             _autoBlockToggle.Text = "启动时自动恢复上次的屏蔽";
             // 
+            // _dohToggle
+            // 
+            _dohToggle.AutoSize = true;
+            _dohToggle.Location = new System.Drawing.Point(324, 40);
+            _dohToggle.Margin = new System.Windows.Forms.Padding(24, 4, 0, 0);
+            _dohToggle.Name = "_dohToggle";
+            _dohToggle.Size = new System.Drawing.Size(340, 24);
+            _dohToggle.TabIndex = 3;
+            _dohToggle.Text = "阻止浏览器加密 DNS（DoH，需重启浏览器）";
+            // 
             // _optionPanel
             // 
             _optionPanel.AutoSize = true;
@@ -163,7 +175,9 @@ namespace ClassFirewall
             _optionPanel.Controls.Add(_blockToggle);
             _optionPanel.Controls.Add(_autoStartToggle);
             _optionPanel.Controls.Add(_autoBlockToggle);
+            _optionPanel.Controls.Add(_dohToggle);
             _optionPanel.Location = new System.Drawing.Point(13, 489);
+            _optionPanel.MaximumSize = new System.Drawing.Size(594, 0);   // 限制宽度，让开关自动换行
             _optionPanel.Name = "_optionPanel";
             _optionPanel.Padding = new System.Windows.Forms.Padding(0, 0, 0, 6);
             _optionPanel.Size = new System.Drawing.Size(500, 70);

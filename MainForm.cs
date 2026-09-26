@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
@@ -28,6 +29,16 @@ namespace ClassFirewall
         /// <summary>程序化改动开关状态时置位，用于抑制 CheckedChanged 的副作用</summary>
         private bool _suppressToggle;
 
+        // ---- 托盘 ----
+        private NotifyIcon _tray = null!;
+        private bool _trayHintShown;
+
+        /// <summary>true 表示确实要退出，而不是关窗口缩到托盘</summary>
+        private bool _reallyExit;
+
+        // ---- 密码 ----
+        private string _passwordHash = "";
+
         public MainForm()
         {
             InitializeComponent();
@@ -41,11 +52,25 @@ namespace ClassFirewall
             _blockToggle.Checked = _settings.DnsEnabled;
             _autoStartToggle.Checked = _settings.AutoStart;
             _autoBlockToggle.Checked = _settings.AutoBlock;
+            _dohToggle.Checked = _settings.BlockDoh;
+            _passwordHash = _settings.PasswordHash;
             _loadingSettings = false;
 
+            SetupTray();
+
+            // 「设置密码」按钮（动态添加，不占 Designer）
+            var passwordBtn = new Button
+            {
+                Text = "设置密码",
+                AutoSize = true,
+                Padding = new Padding(10, 4, 10, 4),
+                Margin = new Padding(0, 0, 8, 0)
+            };
+            passwordBtn.Click += (_, __) => ChangePassword();
+            _buttonsPanel.Controls.Add(passwordBtn);
+
             // 事件
-            _clearBtn.Click += (_, __) => ClearAll();
-            _flushBtn.Click += (_, __) =>
+            _clearBtn.Click += (_, __) => ClearAll();            _flushBtn.Click += (_, __) =>
             {
                 DnsConfigurator.FlushCache();
                 SafeLog("🧹 已刷新 DNS 缓存");
@@ -54,6 +79,7 @@ namespace ClassFirewall
             _blockToggle.CheckedChanged += (_, __) => ToggleBlocking();
             _autoStartToggle.CheckedChanged += (_, __) => OnAutoStartChanged();
             _autoBlockToggle.CheckedChanged += (_, __) => SaveSettings();
+            _dohToggle.CheckedChanged += (_, __) => OnDohToggled();
 
             // 勾选即生效
             _siteList.ItemCheck += (_, __) => BeginInvoke(new Action(() =>
@@ -66,9 +92,26 @@ namespace ClassFirewall
             _dnsServer.OnBlocked += d => SafeLog($"🛡 已拦截: {d}");
             _dnsServer.OnError += msg => SafeLog($"⚠ DNS: {msg}");
 
-            FormClosing += (_, __) =>
+            // 最小化 → 缩到托盘，不占任务栏
+            Resize += (_, __) =>
             {
+                if (WindowState == FormWindowState.Minimized) MinimizeToTray();
+            };
+
+            FormClosing += (_, e) =>
+            {
+                // 设了密码时，点关闭按钮不退出，而是缩到托盘继续屏蔽 ——
+                // 否则使用者一点叉号就把屏蔽关掉了，密码就白设了
+                if (!_reallyExit && PasswordGate.IsConfigured(_passwordHash))
+                {
+                    e.Cancel = true;
+                    MinimizeToTray();
+                    ShowTrayHint("程序仍在后台屏蔽。要退出请右键托盘图标并输入密码。");
+                    return;
+                }
+
                 SaveSettings();
+                DisposeTray();
 
                 // 只要接管过系统 DNS 就必须还原，否则关掉程序就断网
                 if (_blockToggle.Checked || _dnsServer.IsRunning)
@@ -90,9 +133,185 @@ namespace ClassFirewall
 
                 RefreshPreview();
 
+                // 开机自启（-silent）直接进托盘，不弹任何东西
+                if (Program.SilentMode)
+                {
+                    MinimizeToTray();
+                    LogLockState();
+                    return;
+                }
+
+                // 首次运行：提示设置密码
+                if (!PasswordGate.IsConfigured(_passwordHash))
+                    MaybeOfferPasswordSetup();
+
+                LogLockState();
+
                 if (_settings.AutoBlock && _settings.DnsEnabled)
                     EnableBlocking(silent: false);
             };
+        }
+
+        // ---------------- 托盘 ----------------
+
+        private void SetupTray()
+        {
+            var menu = new ContextMenuStrip();
+
+            var openItem = new ToolStripMenuItem("打开主界面");
+            openItem.Click += (_, __) => RestoreFromTray();
+
+            var exitItem = new ToolStripMenuItem("退出程序");
+            exitItem.Click += (_, __) => TryExitFromTray();
+
+            menu.Items.Add(openItem);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(exitItem);
+
+            _tray = new NotifyIcon
+            {
+                Icon = SystemIcons.Shield,
+                Text = "Class Firewall — 网站屏蔽",
+                ContextMenuStrip = menu,
+                Visible = false
+            };
+
+            // 双击托盘图标也能打开（同样要过密码）
+            _tray.DoubleClick += (_, __) => RestoreFromTray();
+        }
+
+        private void DisposeTray()
+        {
+            if (_tray == null) return;
+            _tray.Visible = false;
+            _tray.Dispose();
+        }
+
+        private void MinimizeToTray()
+        {
+            Hide();
+            ShowInTaskbar = false;
+            _tray.Visible = true;
+        }
+
+        private void ShowTrayHint(string text)
+        {
+            if (_trayHintShown || _tray == null) return;
+            _trayHintShown = true;
+
+            try
+            {
+                _tray.BalloonTipTitle = "Class Firewall";
+                _tray.BalloonTipText = text;
+                _tray.ShowBalloonTip(4000);
+            }
+            catch { }
+        }
+
+        private void RestoreFromTray()
+        {
+            // 打开界面要过密码，否则设了密码也白设
+            if (!RequirePassword("打开主界面")) return;
+
+            Show();
+            ShowInTaskbar = true;
+            WindowState = FormWindowState.Normal;
+            _tray.Visible = false;
+            Activate();
+        }
+
+        private void TryExitFromTray()
+        {
+            if (!RequirePassword("退出程序")) return;
+
+            _reallyExit = true;
+            Close();
+        }
+
+        // ---------------- 密码 ----------------
+
+        /// <summary>要求输入密码；没设密码时直接放行。万能密码一律通过</summary>
+        private bool RequirePassword(string action)
+        {
+            if (!PasswordGate.IsConfigured(_passwordHash)) return true;
+
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                string prompt = attempt == 1
+                    ? $"「{action}」需要密码，请输入："
+                    : $"密码不对，再试一次（第 {attempt}/3 次）：";
+
+                string? input = PasswordDialog.Verify(this, "需要密码", prompt);
+                if (input == null) return false;
+                if (PasswordGate.Verify(input, _passwordHash)) return true;
+            }
+
+            SafeLog("⚠ 密码连续输错 3 次，操作已取消");
+            return false;
+        }
+
+        private void LogLockState()
+        {
+            SafeLog(PasswordGate.IsConfigured(_passwordHash)
+                ? "🔒 已启用密码保护：打开界面与退出都需要密码（万能密码见 README）"
+                : "🔓 未设置密码：任何人都能打开界面并解除屏蔽");
+        }
+
+        /// <summary>
+        /// 首次运行（还没设密码）时提示设置一次。
+        /// 只是"提示"，用户可以直接跳过 —— 不该拦着人用工具。
+        /// </summary>
+        private void MaybeOfferPasswordSetup()
+        {
+            var r = MessageBox.Show(this,
+                "要不要给本程序设一个密码？\n\n" +
+                "• 设了之后，打开界面、退出程序都需要输入密码\n" +
+                "• 这样使用者就没法自己把屏蔽关掉\n" +
+                "• 忘记密码可以用万能密码解锁（见 README）\n" +
+                "• 之后也可以随时点「设置密码」修改\n\n" +
+                "现在设置密码吗？",
+                "设置密码",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (r == DialogResult.Yes) ChangePassword();
+        }
+
+        /// <summary>设置 / 修改 / 取消密码。已有密码时先要求验证原密码</summary>
+        private void ChangePassword()
+        {
+            try
+            {
+                // 已经设过密码：必须先证明自己是管理员
+                if (PasswordGate.IsConfigured(_passwordHash) &&
+                    !RequirePassword("修改密码"))
+                    return;
+
+                string prompt = PasswordGate.IsConfigured(_passwordHash)
+                    ? "输入新密码。\r\n（留空并确定 = 取消密码保护）"
+                    : "设置一个密码，之后打开本程序需要输入它才能解锁。\r\n（留空并确定 = 不设密码）";
+
+                if (!PasswordDialog.SetNew(this, out string newPassword, prompt)) return;
+
+                if (newPassword.Length == 0)
+                {
+                    _passwordHash = "";
+                    SaveSettings();
+                    SafeLog("🔓 已取消密码保护");
+                    SetStatus("密码保护已取消。");
+                }
+                else
+                {
+                    _passwordHash = PasswordGate.CreateHash(newPassword);
+                    SaveSettings();
+                    SafeLog("🔒 密码已设置：打开界面与退出都需要密码");
+                    SetStatus("密码已设置。");
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowError("设置密码失败：" + ex.Message);
+            }
         }
 
         // ---------------- 开关屏蔽 ----------------
@@ -128,7 +347,7 @@ namespace ClassFirewall
                     return;
                 }
 
-                _dnsServer.UpdateBlacklist(GetSelectedDomains());
+                _dnsServer.UpdateBlacklist(GetEffectiveBlacklist());
                 _dnsServer.Start();
                 DnsConfigurator.SetDnsToLocalhost();
                 DnsConfigurator.FlushCache();
@@ -137,6 +356,13 @@ namespace ClassFirewall
 
                 SafeLog("▶ 屏蔽已启用：本地 DNS 127.0.0.1:53 已启动，系统 DNS 已接管");
                 SetStatus("屏蔽已启用。");
+
+                // 没关掉浏览器的加密 DNS，屏蔽随时可能被绕过，这里必须提醒
+                if (!_dohToggle.Checked)
+                {
+                    SafeLog("⚠ 未阻止浏览器加密 DNS：浏览器若开着「安全 DNS / DoH」会绕过本屏蔽");
+                    SafeLog("   建议勾选「阻止浏览器加密 DNS（DoH）」，然后重启浏览器");
+                }
 
                 if (!silent) SaveSettings();
             }
@@ -176,6 +402,48 @@ namespace ClassFirewall
             _suppressToggle = false;
         }
 
+        // ---------------- 浏览器加密 DNS（DoH） ----------------
+
+        private void SetDohSilently(bool value)
+        {
+            _suppressToggle = true;
+            _dohToggle.Checked = value;
+            _suppressToggle = false;
+        }
+
+        /// <summary>
+        /// 勾选：写浏览器企业策略关掉「安全 DNS」，并把常见 DoH 域名一起黑洞掉。
+        /// 取消：把策略还原（只删本程序写的值）。
+        /// </summary>
+        private void OnDohToggled()
+        {
+            if (_loadingSettings || _suppressToggle) return;
+
+            try
+            {
+                if (_dohToggle.Checked)
+                {
+                    SafeLog("🔒 正在写入浏览器策略，关闭「安全 DNS / DoH」...");
+                    foreach (var line in BrowserDohGuard.Apply()) SafeLog("   " + line);
+                    SafeLog("   ⚠ 浏览器需要【重启】才会读取到策略（有的还要重启一次系统）");
+                    SafeLog($"   同时已把 {BrowserDohGuard.DohDomains.Length} 个常见 DoH 服务商域名加入拦截");
+                }
+                else
+                {
+                    SafeLog("🔓 正在移除浏览器 DoH 策略...");
+                    foreach (var line in BrowserDohGuard.Remove()) SafeLog("   " + line);
+                }
+
+                SyncBlacklist();
+                RefreshPreview();
+                SaveSettings();
+            }
+            catch (Exception ex)
+            {
+                ShowError("设置浏览器 DoH 策略失败：" + ex.Message);
+            }
+        }
+
         // ---------------- 一键解除 ----------------
 
         private void ClearAll()
@@ -185,6 +453,7 @@ namespace ClassFirewall
                 "• 取消全部网站的勾选\n" +
                 "• 停止本地 DNS 服务\n" +
                 "• 还原系统 DNS 为自动获取（DHCP）\n" +
+                "• 移除浏览器「安全 DNS / DoH」策略\n" +
                 "• 清理旧版本遗留的 hosts 屏蔽块与防火墙规则\n\n" +
                 "未勾选任何网站时，屏蔽自然失效。",
                 "全部解除",
@@ -203,6 +472,21 @@ namespace ClassFirewall
                 _loadingSettings = false;
 
                 DisableBlocking();
+
+                // 浏览器 DoH 策略也要还原，否则会留下一个没有 UI 入口可关的系统改动
+                if (_dohToggle.Checked)
+                {
+                    SetDohSilently(false);
+                    try
+                    {
+                        foreach (var line in BrowserDohGuard.Remove()) SafeLog("   " + line);
+                        SafeLog("🔓 浏览器 DoH 策略已移除（浏览器重启后生效）");
+                    }
+                    catch (Exception ex)
+                    {
+                        SafeLog("⚠ 移除浏览器 DoH 策略失败: " + ex.Message);
+                    }
+                }
 
                 PurgeLegacyHosts();
                 PurgeLegacyFirewallRules();
@@ -336,7 +620,9 @@ namespace ClassFirewall
                     .ToList(),
                 DnsEnabled = _blockToggle.Checked,
                 AutoStart = _autoStartToggle.Checked,
-                AutoBlock = _autoBlockToggle.Checked
+                AutoBlock = _autoBlockToggle.Checked,
+                BlockDoh = _dohToggle.Checked,
+                PasswordHash = _passwordHash
             });
         }
 
@@ -345,9 +631,17 @@ namespace ClassFirewall
         private void SyncBlacklist()
         {
             if (_dnsServer.IsRunning)
-                _dnsServer.UpdateBlacklist(GetSelectedDomains());
+                _dnsServer.UpdateBlacklist(GetEffectiveBlacklist());
 
-            SafeLog($"📋 黑名单已更新，共 {GetSelectedDomains().Distinct().Count()} 个域名");
+            SafeLog($"📋 黑名单已更新，共 {GetEffectiveBlacklist().Distinct().Count()} 个域名");
+        }
+
+        /// <summary>实际下发的黑名单 = 勾选站点的域名 + （可选）DoH 服务商域名</summary>
+        private List<string> GetEffectiveBlacklist()
+        {
+            var list = GetSelectedDomains();
+            if (_dohToggle.Checked) list.AddRange(BrowserDohGuard.DohDomains);
+            return list;
         }
 
         private List<string> GetSelectedDomains()
@@ -371,9 +665,15 @@ namespace ClassFirewall
                 ? "当前屏蔽的域名（暂无）"
                 : $"当前屏蔽的域名（{blocked.Count} 个）";
 
-            _preview.Text = blocked.Count == 0
+            var text = blocked.Count == 0
                 ? "(还没有勾选任何网站)"
                 : string.Join(Environment.NewLine, blocked);
+
+            if (_dohToggle.Checked)
+                text += Environment.NewLine +
+                        $"（另含 {BrowserDohGuard.DohDomains.Length} 个 DoH 服务商域名，见上方日志）";
+
+            _preview.Text = text;
         }
 
         private void SetStatus(string text) => _status.Text = text;
