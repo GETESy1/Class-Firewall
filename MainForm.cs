@@ -33,6 +33,19 @@ namespace ClassFirewall
         private NotifyIcon _tray = null!;
         private bool _trayHintShown;
 
+        /// <summary>
+        /// 正在执行"缩到托盘"这个动作，用于防止 Resize 重入。
+        ///
+        /// 注意：真正导致栈溢出（0xC00000FD）的不是缺这个标志，而是
+        /// `MinimizeToTray` 里改 `ShowInTaskbar`（会重建窗口句柄，且重建发生在
+        /// WmCreate 内部，标志来不及生效）。那个写法已经彻底移除。
+        /// 这个标志保留作为额外的防御。
+        /// </summary>
+        private bool _trayTransition;
+
+        /// <summary>窗口初始化完成前不做任何托盘操作（Load 结束时才置 true）</summary>
+        private bool _formReady;
+
         /// <summary>true 表示确实要退出，而不是关窗口缩到托盘</summary>
         private bool _reallyExit;
 
@@ -95,6 +108,10 @@ namespace ClassFirewall
             // 最小化 → 缩到托盘，不占任务栏
             Resize += (_, __) =>
             {
+                // 初始化完成前不动作；正在缩托盘时不重入。
+                // （真正致命的不是重入，而是 MinimizeToTray 里改 ShowInTaskbar
+                //   导致句柄重建 —— 那个已经彻底去掉了，见 MinimizeToTray 的注释。）
+                if (!_formReady || _trayTransition) return;
                 if (WindowState == FormWindowState.Minimized) MinimizeToTray();
             };
 
@@ -133,22 +150,34 @@ namespace ClassFirewall
 
                 RefreshPreview();
 
-                // 开机自启（-silent）直接进托盘，不弹任何东西
-                if (Program.SilentMode)
-                {
-                    MinimizeToTray();
-                    LogLockState();
-                    return;
-                }
+                bool silent = Program.SilentMode;
 
-                // 首次运行：提示设置密码
-                if (!PasswordGate.IsConfigured(_passwordHash))
-                    MaybeOfferPasswordSetup();
+                if (silent)
+                {
+                    // ★ 不在 Load 里直接缩托盘：此刻窗口正在创建/首次布局，
+                    //   这时候改 ShowInTaskbar 会触发句柄重建 → Resize 重入 → 栈溢出。
+                    //   推迟到消息循环下一轮（窗口已就绪）再执行。
+                    BeginInvoke(new Action(() =>
+                    {
+                        _formReady = true;
+                        MinimizeToTray();
+                    }));
+                }
+                else
+                {
+                    _formReady = true;
+
+                    if (!PasswordGate.IsConfigured(_passwordHash))
+                        MaybeOfferPasswordSetup();      // 首次运行：提示设置密码
+                }
 
                 LogLockState();
 
+                // ★ 静默启动也必须真正恢复屏蔽 —— 开机自启的意义就在这里。
+                //   这里曾经提前 return，结果是程序起来了却什么都没做，
+                //   表现就是"开机自启没有用"。
                 if (_settings.AutoBlock && _settings.DnsEnabled)
-                    EnableBlocking(silent: false);
+                    EnableBlocking(silent: silent);
             };
         }
 
@@ -187,11 +216,35 @@ namespace ClassFirewall
             _tray.Dispose();
         }
 
+        /// <summary>
+        /// 缩到系统托盘。
+        ///
+        /// ★★ 绝对不要在这里改 `ShowInTaskbar` —— 这是实测出来的：
+        ///   `Form.ShowInTaskbar` 一旦变化，WinForms 会**重建窗口句柄**，
+        ///   而重建过程发生在 `WmCreate` 内部，会在窗口创建途中再次触发 `Resize`；
+        ///   `Resize` 又调本方法 …… 形成无限递归，最终**栈溢出（0xC00000FD）**，
+        ///   进程被直接终止，连异常都捕获不到，界面上毫无提示。
+        ///   实测：加防重入标志也**挡不住**（重建发生在标志生效之前）。
+        ///   唯一可靠的写法就是只 `Hide()`。
+        ///
+        ///   而且根本不需要它：**隐藏的窗口本来就不会显示任务栏按钮**。
+        /// </summary>
         private void MinimizeToTray()
         {
-            Hide();
-            ShowInTaskbar = false;
-            _tray.Visible = true;
+            if (_trayTransition) return;
+            if (_tray == null) return;
+            if (!Visible && _tray.Visible) return;   // 已经在托盘里了
+
+            _trayTransition = true;
+            try
+            {
+                if (Visible) Hide();
+                _tray.Visible = true;
+            }
+            finally
+            {
+                _trayTransition = false;
+            }
         }
 
         private void ShowTrayHint(string text)
@@ -212,12 +265,24 @@ namespace ClassFirewall
         {
             // 打开界面要过密码，否则设了密码也白设
             if (!RequirePassword("打开主界面")) return;
+            if (_trayTransition) return;
 
-            Show();
-            ShowInTaskbar = true;
-            WindowState = FormWindowState.Normal;
-            _tray.Visible = false;
-            Activate();
+            _trayTransition = true;
+            try
+            {
+                // 同样不碰 ShowInTaskbar（见 MinimizeToTray 的说明）：
+                // 窗口重新显示时任务栏按钮会自然回来
+                if (WindowState == FormWindowState.Minimized)
+                    WindowState = FormWindowState.Normal;
+
+                if (!Visible) Show();
+                _tray.Visible = false;
+                Activate();
+            }
+            finally
+            {
+                _trayTransition = false;
+            }
         }
 
         private void TryExitFromTray()
@@ -253,8 +318,8 @@ namespace ClassFirewall
         private void LogLockState()
         {
             SafeLog(PasswordGate.IsConfigured(_passwordHash)
-                ? "🔒 已启用密码保护：打开界面与退出都需要密码（万能密码见 README）"
-                : "🔓 未设置密码：任何人都能打开界面并解除屏蔽");
+                ? "🔒 已启用密码保护"
+                : "🔓 未设置密码");
         }
 
         /// <summary>
@@ -360,8 +425,7 @@ namespace ClassFirewall
                 // 没关掉浏览器的加密 DNS，屏蔽随时可能被绕过，这里必须提醒
                 if (!_dohToggle.Checked)
                 {
-                    SafeLog("⚠ 未阻止浏览器加密 DNS：浏览器若开着「安全 DNS / DoH」会绕过本屏蔽");
-                    SafeLog("   建议勾选「阻止浏览器加密 DNS（DoH）」，然后重启浏览器");
+                    SafeLog("⚠ 未阻止浏览器加密 DNS，浏览器开着「安全 DNS」时会绕过屏蔽");
                 }
 
                 if (!silent) SaveSettings();
@@ -423,15 +487,25 @@ namespace ClassFirewall
             {
                 if (_dohToggle.Checked)
                 {
-                    SafeLog("🔒 正在写入浏览器策略，关闭「安全 DNS / DoH」...");
-                    foreach (var line in BrowserDohGuard.Apply()) SafeLog("   " + line);
-                    SafeLog("   ⚠ 浏览器需要【重启】才会读取到策略（有的还要重启一次系统）");
-                    SafeLog($"   同时已把 {BrowserDohGuard.DohDomains.Length} 个常见 DoH 服务商域名加入拦截");
+                    var results = BrowserDohGuard.Apply();
+                    int ok = results.Count(x => x.StartsWith("✔"));
+
+                    SafeLog($"🔒 已关闭浏览器「安全 DNS」（{ok}/{results.Count} 个），" +
+                            $"并拦截 {BrowserDohGuard.DohDomains.Length} 个 DoH 域名");
+
+                    // 只把出问题的那些列出来，正常的不刷屏
+                    foreach (var bad in results.Where(x => x.StartsWith("✖")))
+                        SafeLog("   " + bad);
+
+                    SafeLog("   浏览器重启后生效");
                 }
                 else
                 {
-                    SafeLog("🔓 正在移除浏览器 DoH 策略...");
-                    foreach (var line in BrowserDohGuard.Remove()) SafeLog("   " + line);
+                    var results = BrowserDohGuard.Remove();
+                    SafeLog("🔓 已移除浏览器「安全 DNS」策略");
+
+                    foreach (var bad in results.Where(x => x.StartsWith("✖")))
+                        SafeLog("   " + bad);
                 }
 
                 SyncBlacklist();
@@ -550,17 +624,25 @@ namespace ClassFirewall
             {
                 if (_autoStartToggle.Checked)
                 {
-                    if (!AutoStartManager.Enable())
+                    if (!AutoStartManager.Enable(out string detail))
                     {
                         SetAutoStartSilently(false);
-                        ShowError("设置开机自启失败。\r\n可能原因：系统策略限制、任务计划程序服务被禁用。");
+                        SafeLog("✖ 创建开机自启任务失败：" + detail);
+                        ShowError("设置开机自启失败。\r\n\r\nschtasks 的输出：\r\n" + detail +
+                                  "\r\n\r\n常见原因：任务计划程序服务被禁用、系统策略限制。");
                         return;
                     }
-                    SafeLog("✅ 已添加开机自启任务（最高权限运行，免 UAC）");
+
+                    SafeLog("✅ 已添加开机自启任务");
+
+                    // 光建了任务还不够：没勾「启动时自动恢复屏蔽」的话，
+                    // 开机拉起来的只是个空壳，屏蔽照样是关着的 —— 这个坑踩过。
+                    if (!_autoBlockToggle.Checked)
+                        SafeLog("⚠ 「启动时自动恢复上次的屏蔽」未勾选，开机后不会启用屏蔽，建议一起勾上");
                 }
                 else
                 {
-                    AutoStartManager.Disable();
+                    AutoStartManager.Disable(out _);
                     SafeLog("已移除开机自启任务");
                 }
                 SaveSettings();
@@ -578,17 +660,57 @@ namespace ClassFirewall
             _suppressToggle = false;
         }
 
+        /// <summary>
+        /// 让「开机自动启动」开关与任务计划程序里的真实状态保持一致，并做自愈：
+        ///
+        /// ★ 自愈场景：任务在、但指向的 exe 已经不在原处（程序被移动/改名，
+        ///   或曾经从 dist\ 之类临时目录启用过自启）。这种情况下任务照样"存在"，
+        ///   但登录时拉不起任何东西 —— 表现就是"开机自启没有用"。
+        ///   所以只要设置里开着自启，就顺手用当前 exe 覆盖注册一次
+        ///   （schtasks 的 /F 是原子覆盖，不会出现任务真空期）。
+        /// </summary>
         private void ReconcileAutoStartToggle()
         {
             try
             {
-                bool real = AutoStartManager.IsEnabled();
+                bool real = AutoStartManager.IsEnabled(out string detail);
+
+                // 设置里开着自启 —— 用户意图明确，确保任务存在且指向当前 exe
+                if (_settings.AutoStart)
+                {
+                    if (!real)
+                    {
+                        // 任务不在：这才值得记一笔
+                        if (AutoStartManager.Enable(out string enableDetail))
+                            SafeLog("ℹ 开机自启任务缺失，已自动补建");
+                        else
+                        {
+                            SafeLog("✖ 开机自启任务缺失且补建失败：" + enableDetail);
+                            SetAutoStartSilently(false);
+                            SaveSettings();
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        // 已存在：静默刷新一次，保证指向当前 exe（程序被移动过也能自愈）。
+                        // 这是每次启动都会做的常规动作，不刷日志。
+                        AutoStartManager.Enable(out _);
+                    }
+
+                    SetAutoStartSilently(true);
+                    SaveSettings();
+                    return;
+                }
+
+                // 设置里没开：以真实状态为准
                 if (_autoStartToggle.Checked == real) return;
 
                 SetAutoStartSilently(real);
                 SafeLog(real
                     ? "ℹ 检测到开机自启任务已存在，开关已同步为开启"
-                    : "ℹ 未找到开机自启任务，开关已同步为关闭");
+                    : "ℹ 未找到开机自启任务，开关已同步为关闭" +
+                      (detail.Length > 0 ? $"（{detail}）" : ""));
                 SaveSettings();
             }
             catch { }

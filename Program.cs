@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 
 namespace ClassFirewall
@@ -11,11 +13,18 @@ namespace ClassFirewall
         /// <summary>解锁失败次数上限，超过就退出，避免无限尝试</summary>
         private const int MaxAttempts = 5;
 
+        /// <summary>崩溃日志：开机自启出问题时，这是唯一的线索来源</summary>
+        private static readonly string CrashLog = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "ClassFirewall", "crash.log");
+
         [STAThread]
         static void Main(string[] args)
         {
             SilentMode = args.Any(a =>
                 a.Equals("-silent", StringComparison.OrdinalIgnoreCase));
+
+            InstallCrashLogging();
 
             ApplicationConfiguration.Initialize();
 
@@ -29,6 +38,45 @@ namespace ClassFirewall
                 form.WindowState = FormWindowState.Minimized;
 
             Application.Run(form);
+        }
+
+        /// <summary>
+        /// 把未处理异常写进 %AppData%\ClassFirewall\crash.log。
+        ///
+        /// 注意：**栈溢出（0xC00000FD）无法被捕获** —— 进程会被直接终止，
+        /// 本方法对它无能为力，只能靠消除递归来修。
+        /// 但其它异常都能留下记录，不至于像之前那样"程序就是没反应、毫无提示"。
+        /// </summary>
+        private static void InstallCrashLogging()
+        {
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                WriteCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
+
+            Application.ThreadException += (_, e) =>
+                WriteCrash("WinForms ThreadException", e.Exception);
+
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        }
+
+        private static void WriteCrash(string source, Exception? ex)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(CrashLog)!);
+
+                var sb = new StringBuilder();
+                sb.AppendLine("==================== 崩溃 ====================");
+                sb.AppendLine($"时间    : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                sb.AppendLine($"来源    : {source}");
+                sb.AppendLine($"静默模式: {SilentMode}");
+                sb.AppendLine($"命令行  : {Environment.CommandLine}");
+                sb.AppendLine($"异常    : {ex?.GetType().FullName ?? "(非 Exception 对象)"}");
+                sb.AppendLine($"消息    : {ex?.Message}");
+                sb.AppendLine(ex?.StackTrace);
+
+                File.AppendAllText(CrashLog, sb.ToString(), new UTF8Encoding(false));
+            }
+            catch { /* 记日志本身绝不能抛 */ }
         }
 
         /// <summary>没有设密码直接放行；设了就要求输入，最多 MaxAttempts 次</summary>
