@@ -8,27 +8,16 @@ namespace ClassFirewall
 {
     public sealed class AppSettings
     {
-        /// <summary>勾选的站点名（对应 SiteCatalog 里的 Name）</summary>
         public List<string> CheckedSites { get; set; } = new();
 
-        /// <summary>是否启用屏蔽（启动本地 DNS 并接管系统 DNS）</summary>
         public bool DnsEnabled { get; set; }
 
         public bool AutoStart { get; set; }
 
-        /// <summary>启动时自动恢复上次的屏蔽配置</summary>
         public bool AutoBlock { get; set; }
 
-        /// <summary>
-        /// 阻止浏览器使用加密 DNS（DoH）。
-        /// 默认开启：浏览器默认就带「安全 DNS」，不开这个屏蔽会被直接绕过。
-        /// </summary>
         public bool BlockDoh { get; set; } = true;
 
-        /// <summary>
-        /// 解锁密码的哈希（PBKDF2，含盐与迭代次数）。
-        /// **不保存明文**；为空表示没有设置密码保护。
-        /// </summary>
         public string PasswordHash { get; set; } = "";
 
         // ---- 以下字段已废弃，仅为了能读旧版本的 settings.json 而保留 ----

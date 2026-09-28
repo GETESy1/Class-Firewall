@@ -10,10 +10,8 @@ namespace ClassFirewall
     {
         public static bool SilentMode { get; private set; }
 
-        /// <summary>解锁失败次数上限，超过就退出，避免无限尝试</summary>
         private const int MaxAttempts = 5;
 
-        /// <summary>崩溃日志：开机自启出问题时，这是唯一的线索来源</summary>
         private static readonly string CrashLog = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "ClassFirewall", "crash.log");
@@ -28,8 +26,6 @@ namespace ClassFirewall
 
             ApplicationConfiguration.Initialize();
 
-            // ★ 解锁校验放在窗口出现之前，避免没解锁就瞥见界面。
-            //   开机自启（-silent）不弹窗，否则会在登录时卡住等人输密码。
             if (!SilentMode && !Unlock())
                 return;
 
@@ -39,14 +35,6 @@ namespace ClassFirewall
 
             Application.Run(form);
         }
-
-        /// <summary>
-        /// 把未处理异常写进 %AppData%\ClassFirewall\crash.log。
-        ///
-        /// 注意：**栈溢出（0xC00000FD）无法被捕获** —— 进程会被直接终止，
-        /// 本方法对它无能为力，只能靠消除递归来修。
-        /// 但其它异常都能留下记录，不至于像之前那样"程序就是没反应、毫无提示"。
-        /// </summary>
         private static void InstallCrashLogging()
         {
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
@@ -76,10 +64,8 @@ namespace ClassFirewall
 
                 File.AppendAllText(CrashLog, sb.ToString(), new UTF8Encoding(false));
             }
-            catch { /* 记日志本身绝不能抛 */ }
+            catch {  }
         }
-
-        /// <summary>没有设密码直接放行；设了就要求输入，最多 MaxAttempts 次</summary>
         private static bool Unlock()
         {
             var settings = SettingsStore.Load();

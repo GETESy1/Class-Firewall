@@ -11,7 +11,6 @@ namespace ClassFirewall
 {
     public sealed class DnsServer : IDisposable
     {
-        // SIO_UDP_CONNRESET: 让 Windows 不要在 UDP socket 上传播 ICMP 重置错误
         private const int SIO_UDP_CONNRESET = -1744830452;
 
         private readonly DomainMatcher _matcher = new();
@@ -53,8 +52,6 @@ namespace ClassFirewall
             if (IsRunning) return;
             _cts = new CancellationTokenSource();
             _listener = new UdpClient(new IPEndPoint(IPAddress.Loopback, Port));
-
-            // ★ 关键：禁用 UDP 连接重置错误传播
             try
             {
                 _listener.Client.IOControl(
@@ -62,7 +59,7 @@ namespace ClassFirewall
                     new byte[] { 0, 0, 0, 0 },
                     null);
             }
-            catch { /* 某些系统/驱动可能不支持，忽略 */ }
+            catch {  }
 
             IsRunning = true;
             _ = Task.Run(() => ListenLoopAsync(_cts.Token));
@@ -89,8 +86,7 @@ namespace ClassFirewall
                 catch (ObjectDisposedException) { break; }
                 catch (SocketException ex)
                 {
-                    // ★ UDP 上常见的非致命错误：ICMP 反馈导致的"连接重置/拒绝"
-                    //   不应该终止监听循环，直接 continue 重新 Receive
+
                     if (ex.SocketErrorCode == SocketError.ConnectionReset ||
                         ex.SocketErrorCode == SocketError.ConnectionRefused ||
                         ex.SocketErrorCode == SocketError.NetworkReset ||
@@ -126,7 +122,7 @@ namespace ClassFirewall
                 string qname = ParseQName(buf, qnameStart, out _);
                 if (string.IsNullOrEmpty(qname)) return;
 
-                // 1. 黑名单 → 127.0.0.1
+      
                 if (IsBlacklisted(qname))
                 {
                     BlockedCount++;
@@ -136,7 +132,6 @@ namespace ClassFirewall
                     return;
                 }
 
-                // 2. 缓存命中
                 if (_cache.TryGetValue(qname, out var entry) && entry.ExpiresAt > DateTime.UtcNow)
                 {
                     CacheHits++;
@@ -147,7 +142,7 @@ namespace ClassFirewall
                     return;
                 }
 
-                // 3. 转发上游
+              
                 var answer = await ForwardAsync(buf, req.RemoteEndPoint);
                 if (answer != null)
                 {
@@ -165,7 +160,7 @@ namespace ClassFirewall
             }
         }
 
-        /// <summary>发送响应，忽略客户端已关闭导致的错误</summary>
+     
         private async Task SafeSendAsync(byte[] data, IPEndPoint remote)
         {
             try
@@ -180,7 +175,7 @@ namespace ClassFirewall
                     ex.SocketErrorCode == SocketError.HostUnreachable ||
                     ex.SocketErrorCode == SocketError.NetworkUnreachable)
                 {
-                    return; // 客户端已走，正常
+                    return; 
                 }
                 OnError?.Invoke("发送 DNS 响应失败: " + ex.Message);
             }
@@ -196,7 +191,7 @@ namespace ClassFirewall
                 try
                 {
                     using var udp = new UdpClient();
-                    // 上游 socket 也禁用 ICMP 重置传播
+                   
                     try
                     {
                         udp.Client.IOControl(
@@ -218,7 +213,7 @@ namespace ClassFirewall
                 }
                 catch (SocketException)
                 {
-                    // 上游不可达时换下一个上游，不记录错误
+                   
                     continue;
                 }
                 catch { }
@@ -226,7 +221,7 @@ namespace ClassFirewall
             return null;
         }
 
-        // ---------- DNS 报文解析/构建 ----------
+
 
         private static int GetQNameEnd(byte[] buf, int start)
         {

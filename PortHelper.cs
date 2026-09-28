@@ -4,9 +4,7 @@ using System.Diagnostics;
 
 namespace ClassFirewall
 {
-    /// <summary>
-    /// 查找并结束占用指定端口的进程（保护系统关键进程）。
-    /// </summary>
+
     public static class PortHelper
     {
         public sealed class PortProcess
@@ -16,7 +14,6 @@ namespace ClassFirewall
             public bool IsCritical { get; set; }
         }
 
-        /// <summary>找出占用指定端口的进程</summary>
         public static List<PortProcess> FindProcessesUsingPort(int port)
         {
             var result = new List<PortProcess>();

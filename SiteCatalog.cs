@@ -11,21 +11,15 @@ namespace ClassFirewall
         public override string ToString() => Name;
     }
 
-    /// <summary>
     /// 站点黑名单清单。
     ///
-    /// ★ 匹配规则（见 DomainMatcher）：**逐级后缀匹配**。
+    ///   匹配规则（见 DomainMatcher）：**逐级后缀匹配**。
     ///   清单里写 "douyin.com"，则 douyin.com 及其**任意深度子域名**全部命中：
     ///   www.douyin.com、api-hl.amemv.douyin.com、以及随便什么.douyin.com 都会被拦。
     ///
-    /// ★ 所以新增站点时：**优先只写基础域名**（两段式，如 kuwo.cn、4399.net），
+    ///   所以新增站点时：**优先只写基础域名**（两段式，如 kuwo.cn、4399.net），
     ///   不必再逐个列举 www / m / api 这些子域名 —— 它们已经被基础域名覆盖了。
-    ///
-    /// ★ 唯一的例外：基础域名被**不相关的服务共用**时不能整片封，
-    ///   这种只能逐条列举具体子域名。目前有两处：
-    ///     · 腾讯的 qq.com —— QQ、微信网页版、QQ邮箱、腾讯网都在上面
-    ///     · 网易的 163.com —— 163邮箱、网易新闻
-    /// </summary>
+  
     public static class SiteCatalog
     {
         public static IReadOnlyList<SiteInfo> Sites { get; } = new List<SiteInfo>

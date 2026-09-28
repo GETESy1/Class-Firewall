@@ -36,7 +36,7 @@ namespace ClassFirewall
             }
         }
 
-        /// <summary>清空系统 DNS 解析缓存</summary>
+   
         public static void FlushCache()
         {
             try
@@ -50,7 +50,7 @@ namespace ClassFirewall
                 using var p = Process.Start(psi);
                 p?.WaitForExit(5000);
             }
-            catch { /* 忽略 */ }
+            catch { }
         }
 
         private static void RunNetsh(string args)
@@ -66,7 +66,7 @@ namespace ClassFirewall
                 using var p = Process.Start(psi);
                 p?.WaitForExit(5000);
             }
-            catch { /* 忽略单个网卡失败 */ }
+            catch {}
         }
     }
 }

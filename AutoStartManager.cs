@@ -7,25 +7,6 @@ using Microsoft.Win32;
 
 namespace ClassFirewall
 {
-    /// <summary>
-    /// 开机自启：用**任务计划程序**建一个「登录时触发、以最高权限运行」的任务。
-    /// 这是 Windows 上唯一能**免 UAC 静默提权**的官方途径 —— 启动项做不到，
-    /// 因为启动项只能以普通用户权限拉起程序，而本程序必须提权
-    /// （改网卡 DNS、写浏览器策略、结束占用 53 端口的进程）。
-    ///
-    /// ★ 为什么用 /XML 而不是命令行参数：
-    ///   <c>/TR "…"</c> 在「路径含空格」时要再套一层引号，而 schtasks 对多重引号的解析
-    ///   很不可靠 —— exe 只要放在带空格的目录（<c>C:\Program Files\…</c>，或本项目的
-    ///   "Class Firewall"）就会报 <c>Invalid argument/option</c> 或 <c>系统找不到指定的路径</c>。
-    ///   XML 里 &lt;Command&gt; 与 &lt;Arguments&gt; 分开写，完全没有引号问题。
-    ///
-    /// ★ 同时修掉命令行方式建任务会中的三个默认值坑：
-    ///   · ExecutionTimeLimit 默认 72 小时 → 到点 Windows 把进程**杀掉**，屏蔽消失
-    ///   · DisallowStartIfOnBatteries 默认 true → 笔记本用电池时**根本不启动**
-    ///   · StopIfGoingOnBatteries 默认 true → 一拔电源就被停掉
-    ///
-    /// ★ 失败时带回 schtasks 的原始输出，界面上能看到具体原因。
-    /// </summary>
     public static class AutoStartManager
     {
         internal const string TaskName = "ClassFirewallAutoStart";
