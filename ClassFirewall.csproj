@@ -4,7 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <Nullable>enable</Nullable>
+	<ApplicationIcon>ico/app.ico</ApplicationIcon>
+	<Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <AssemblyName>ClassFirewall</AssemblyName>
@@ -28,14 +29,7 @@
 
   </PropertyGroup>
 
-  <!-- ========== 已移除的功能（归档，不参与构建）==========
-       archive/ 里保存着 DPI/SNI 拦截、MITM 根证书 + 403 页面、
-       TUN 模式、外部 DNS 解析等已下线的实现。
-       屏蔽现在只依赖本地 DNS 一层，逻辑更简单也更可靠。
-       需要恢复时，把对应 .cs 移回项目根目录即可。 -->
-  <ItemGroup>
-    <Compile Remove="archive/**" />
-    <None Remove="archive/**" />
-  </ItemGroup>
-
+<ItemGroup>
+  <EmbeddedResource Include="ico\app.ico" />
+</ItemGroup>
 </Project>

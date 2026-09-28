@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -197,9 +198,16 @@ namespace ClassFirewall
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
 
+            Icon icon;
+            using (var stream = Assembly.GetExecutingAssembly()
+                       .GetManifestResourceStream("ClassFirewall.ico.app.ico"))
+            {
+                icon = stream != null ? new Icon(stream) : SystemIcons.Application;
+            }
+
             _tray = new NotifyIcon
             {
-                Icon = SystemIcons.Shield,
+                Icon = icon,
                 Text = "Class Firewall — 网站屏蔽",
                 ContextMenuStrip = menu,
                 Visible = false
@@ -270,12 +278,23 @@ namespace ClassFirewall
             _trayTransition = true;
             try
             {
-                // 同样不碰 ShowInTaskbar（见 MinimizeToTray 的说明）：
-                // 窗口重新显示时任务栏按钮会自然回来
+                // ★ 顺序很关键：必须先 Show 再设 WindowState。
+                //   窗口处于隐藏状态时设 WindowState=Normal **不会落地**，
+                //   结果窗口仍是"最小化 + 屏幕外(-32000,-32000)"，看起来就是打不开。
+                if (!Visible) Show();
+
                 if (WindowState == FormWindowState.Minimized)
                     WindowState = FormWindowState.Normal;
 
-                if (!Visible) Show();
+                // 兜底：万一位置仍在所有屏幕之外（比如显示器换过），拉回主屏中央
+                if (!SystemInformation.VirtualScreen.IntersectsWith(Bounds))
+                {
+                    var wa = Screen.PrimaryScreen!.WorkingArea;
+                    Location = new Point(
+                        wa.Left + (wa.Width - Width) / 2,
+                        wa.Top + (wa.Height - Height) / 2);
+                }
+
                 _tray.Visible = false;
                 Activate();
             }
@@ -628,15 +647,13 @@ namespace ClassFirewall
                     {
                         SetAutoStartSilently(false);
                         SafeLog("✖ 创建开机自启任务失败：" + detail);
-                        ShowError("设置开机自启失败。\r\n\r\nschtasks 的输出：\r\n" + detail +
-                                  "\r\n\r\n常见原因：任务计划程序服务被禁用、系统策略限制。");
+                        ShowError("设置开机自启失败。\r\n\r\n" + detail);
                         return;
                     }
 
                     SafeLog("✅ 已添加开机自启任务");
 
-                    // 光建了任务还不够：没勾「启动时自动恢复屏蔽」的话，
-                    // 开机拉起来的只是个空壳，屏蔽照样是关着的 —— 这个坑踩过。
+                    // 没勾「启动时自动恢复屏蔽」的话，开机拉起来的只是个空壳
                     if (!_autoBlockToggle.Checked)
                         SafeLog("⚠ 「启动时自动恢复上次的屏蔽」未勾选，开机后不会启用屏蔽，建议一起勾上");
                 }
@@ -661,13 +678,8 @@ namespace ClassFirewall
         }
 
         /// <summary>
-        /// 让「开机自动启动」开关与任务计划程序里的真实状态保持一致，并做自愈：
-        ///
-        /// ★ 自愈场景：任务在、但指向的 exe 已经不在原处（程序被移动/改名，
-        ///   或曾经从 dist\ 之类临时目录启用过自启）。这种情况下任务照样"存在"，
-        ///   但登录时拉不起任何东西 —— 表现就是"开机自启没有用"。
-        ///   所以只要设置里开着自启，就顺手用当前 exe 覆盖注册一次
-        ///   （schtasks 的 /F 是原子覆盖，不会出现任务真空期）。
+        /// 让开关与启动项的真实状态保持一致。
+        /// 设置里开着自启时，顺手用当前 exe 覆盖写一次，程序被移动过也能自愈。
         /// </summary>
         private void ReconcileAutoStartToggle()
         {
@@ -675,12 +687,10 @@ namespace ClassFirewall
             {
                 bool real = AutoStartManager.IsEnabled(out string detail);
 
-                // 设置里开着自启 —— 用户意图明确，确保任务存在且指向当前 exe
                 if (_settings.AutoStart)
                 {
                     if (!real)
                     {
-                        // 任务不在：这才值得记一笔
                         if (AutoStartManager.Enable(out string enableDetail))
                             SafeLog("ℹ 开机自启任务缺失，已自动补建");
                         else
@@ -693,8 +703,6 @@ namespace ClassFirewall
                     }
                     else
                     {
-                        // 已存在：静默刷新一次，保证指向当前 exe（程序被移动过也能自愈）。
-                        // 这是每次启动都会做的常规动作，不刷日志。
                         AutoStartManager.Enable(out _);
                     }
 

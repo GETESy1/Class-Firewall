@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace ClassFirewall
 {
     partial class MainForm
@@ -26,7 +28,13 @@ namespace ClassFirewall
                 components.Dispose();
             base.Dispose(disposing);
         }
+        private static System.Drawing.Icon? LoadAppIcon()
+        {
+            using var stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("ClassFirewall.ico.app.ico");
 
+            return stream != null ? new System.Drawing.Icon(stream) : null;
+        }
         private void InitializeComponent()
         {
             _siteList = new System.Windows.Forms.CheckedListBox();
@@ -243,7 +251,8 @@ namespace ClassFirewall
             MinimumSize = new System.Drawing.Size(520, 600);
             Name = "MainForm";
             StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            Text = "Class Firewall — 班级网站屏蔽";
+            Text = "Class Firewall — 班级网络防火墙";
+            Icon = LoadAppIcon();
             _buttonsPanel.ResumeLayout(false);
             _buttonsPanel.PerformLayout();
             _optionPanel.ResumeLayout(false);

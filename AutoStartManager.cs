@@ -1,32 +1,28 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32;
 
 namespace ClassFirewall
 {
+    /// <summary>
+    /// 开机自启：用任务计划程序建一个「登录时触发、最高权限运行」的任务。
+    /// 这是 Windows 上唯一能免 UAC 静默提权的途径；启动项（Run 键）做不到，
+    /// 而且在本机还会被火绒 HIPS 拦住写入。
+    /// </summary>
     public static class AutoStartManager
     {
         internal const string TaskName = "ClassFirewallAutoStart";
-
-        /// <summary>之前用「启动项」方案写过的位置，升级时清掉，避免两套自启同时生效</summary>
-        internal const string RunKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
-        internal const string RunValueName = "ClassFirewall";
-
-        // ---------------- 查询 / 启用 / 停用 ----------------
-
         public static bool IsEnabled() => IsEnabled(out _);
 
         public static bool IsEnabled(out string detail)
         {
             var (code, output) = RunSchTasks($"/Query /TN \"{TaskName}\"");
-            detail = code == 0 ? "计划任务已存在" : Trim(output);
+            detail = code == 0 ? "任务已存在" : Trim(output);
             return code == 0;
         }
 
-        /// <summary>创建（或覆盖）自启任务；失败时 detail 带 schtasks 原始输出</summary>
         public static bool Enable(out string detail)
         {
             string exe = CurrentExePath();
@@ -36,29 +32,22 @@ namespace ClassFirewall
                 return false;
             }
 
-            string legacy = RemoveLegacyRunEntries();
 
-            // 不先删再建：schtasks 的 /F 本身就是覆盖式注册，是原子操作。
-            // 先删会留一个"任务已删、新任务还没建"的空窗，万一此刻断电/崩溃就没了。
-
+            // /XML 方式：Command 与 Arguments 分开写，不存在引号转义问题。
+            // 命令行 /TR 方式在「路径含空格」时必定失败（schtasks 会从空格处切断参数）。
             if (CreateFromXml(exe, out string xmlDetail))
             {
-                detail = "已用 XML 方式创建计划任务（最高权限运行，免 UAC）" + legacy;
+                detail = "XML 方式" ;
                 return true;
             }
 
-            // XML 失败时退回命令行方式。
-            // 注意：这种方式在「exe 路径含空格」时**必定失败**
-            //（schtasks 会把参数从空格处切断，报"无效参数/选项"），
-            // 本项目的目录名就带空格，所以它只是个理论上的兜底。
             if (CreateFromCommandLine(exe, out string cmdDetail))
             {
-                detail = "XML 方式失败（" + Trim(xmlDetail) + "），已改用命令行方式创建" + legacy;
+                detail = "命令行方式（XML 失败：" + Trim(xmlDetail) + "）" ;
                 return true;
             }
 
-            detail = "XML 方式：" + Trim(xmlDetail) + Environment.NewLine +
-                     "命令行方式（路径含空格时必然失败）：" + Trim(cmdDetail);
+            detail = "XML：" + Trim(xmlDetail) + Environment.NewLine + "命令行：" + Trim(cmdDetail);
             return false;
         }
 
@@ -71,35 +60,10 @@ namespace ClassFirewall
             return true;
         }
 
-        // ---------------- 清理旧方案留下的启动项 ----------------
-
-        /// <summary>删除「启动项」方案写过的 Run 键值；返回一句说明，没有则返回空串</summary>
-        public static string RemoveLegacyRunEntries()
-        {
-            bool removed = false;
-
-            foreach (var hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
-            {
-                try
-                {
-                    using var key = hive.OpenSubKey(RunKeyPath, true);
-                    if (key?.GetValue(RunValueName) == null) continue;
-
-                    key.DeleteValue(RunValueName, false);
-                    removed = true;
-                }
-                catch { /* 删不掉就算了，不影响主流程 */ }
-            }
-
-            return removed ? "；并清除了旧的启动项" : "";
-        }
-
-        // ---------------- 两种创建方式 ----------------
-
         private static bool CreateFromXml(string exe, out string detail)
         {
             string xmlPath = Path.Combine(Path.GetTempPath(),
-                "ClassFirewall-autostart-" + Guid.NewGuid().ToString("N") + ".xml");
+                "ClassFirewall-" + Guid.NewGuid().ToString("N") + ".xml");
 
             try
             {
@@ -130,23 +94,18 @@ namespace ClassFirewall
             return code == 0;
         }
 
-        /// <summary>任务定义。抽出来便于单测（校验 XML 合法性与路径转义）</summary>
-        internal static string BuildTaskXml(string exe, string? userName = null)
+        /// <summary>
+        /// 任务定义。刻意不写 UserId（省略时用注册该任务的用户）；
+        /// ExecutionTimeLimit=PT0S 避免默认 72 小时被强杀，
+        /// 电池两项设为 false 避免笔记本上不启动。
+        /// </summary>
+        internal static string BuildTaskXml(string exe)
         {
-            // ★ 刻意不写 <UserId>：
-            //   写 UserId 会引入一类已知的注册失败
-            //   （System.ArgumentException: (nn,nn):UserId:xxx），
-            //   在机器名偏长 / 工作组环境 / 账户名解析异常时尤其容易中招。
-            //   省略 UserId 时，任务计划程序默认就用「注册它的那个用户」，
-            //   语义与我们要的完全一致，还少一个失败点。
-            //   "以最高权限运行、免 UAC" 由 RunLevel=HighestAvailable 负责。
-            _ = userName;
-
             return
 $@"<?xml version=""1.0"" encoding=""UTF-16""?>
 <Task version=""1.2"" xmlns=""http://schemas.microsoft.com/windows/2004/02/mit/task"">
   <RegistrationInfo>
-    <Description>Class Firewall 开机自启（最高权限运行，免 UAC）</Description>
+    <Description>Class Firewall 开机自启</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -220,7 +179,7 @@ $@"<?xml version=""1.0"" encoding=""UTF-16""?>
                 string stderr = p.StandardError.ReadToEnd();
 
                 if (!p.WaitForExit(20000))
-                    return (-1, "schtasks 执行超时（20 秒）");
+                    return (-1, "schtasks 超时");
 
                 return (p.ExitCode, (stdout + " " + stderr).Trim());
             }
