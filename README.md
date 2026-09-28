@@ -159,22 +159,6 @@ new SiteInfo
 
 ---
 
-## 已下线的功能（`archive/`）
-
-这些曾经实现过，后来因为复杂度 / 可靠性问题下线。代码**移到了 `archive/`，不参与编译**（`csproj` 里有 `<Compile Remove="archive/**" />`），需要时可移回项目根目录恢复。
-
-| 文件 | 原功能 | 下线原因 |
-|---|---|---|
-| `DeepInspector.cs` | DPI：解析 HTTP `Host` 头与 TLS SNI | 它的增量价值只有"显示 403 页面"。不显示 403 之后，对 DNS 层已无任何增量 —— 命中域名本来就被解析到 127.0.0.1 了 |
-| `CertificateAuthority.cs` | MITM 自签根证书 + 域名证书签发 | 为了显示 403 页面而接管 80/443 端口并往系统装根证书，代价远大于收益 |
-| `DpiSelfTest.cs` | DPI 链路自检 | 随 DPI 一起下线 |
-| `TunEngine.cs` / `TunRouteManager.cs` | TUN 模式：用户态接管流量 | 需要 wintun 驱动，且不集成 tun2socks 就无法做全网接管 |
-| `WintunInterop.cs` / `WintunLoader.cs` / `wintun.dll` | Wintun 驱动绑定与加载 | 同上 |
-| `PacketCodec.cs` | IPv4/TCP/UDP/DNS 报文编解码 | TUN 的数据面 |
-| `ExternalDns.cs` | 外部 DNS 解析真实 IP | 曾用于防火墙 / TUN 的 IP 层 |
-
----
-
 ## 如何彻底清理
 
 | 残留 | 清理方式 |
