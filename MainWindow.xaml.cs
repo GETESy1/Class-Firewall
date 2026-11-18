@@ -519,6 +519,19 @@ namespace ClassFirewall
 
         // ==================== 站点勾选 ====================
 
+        /// <summary>
+        /// 整行点击 = 勾选/取消勾选。
+        ///
+        /// 模板里的 CheckBox 设了 IsHitTestVisible=False，点击事件落到 ListViewItem 上，
+        /// 由这里翻转状态；这样点文字、点空白处都能勾上（比只能点小方框好用）。
+        /// 键盘：ListView 在 IsItemClickEnabled=true 时，Enter/Space 也会触发这里。
+        /// </summary>
+        private void OnSiteItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is SiteItem item)
+                item.IsChecked = !item.IsChecked;
+        }
+
         private void SelectNone()
         {
             foreach (var site in _vm.Sites.Where(s => s.IsChecked).ToList())

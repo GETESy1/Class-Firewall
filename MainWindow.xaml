@@ -149,7 +149,8 @@
                     </Grid>
 
                     <ListView x:Name="SiteList" Grid.Row="1" SelectionMode="None"
-                              IsItemClickEnabled="False" Padding="4,0,20,8"
+                              IsItemClickEnabled="True" ItemClick="OnSiteItemClick"
+                              Padding="4,0,20,8"
                               ScrollViewer.HorizontalScrollMode="Disabled"
                               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListView.ItemTemplate>
