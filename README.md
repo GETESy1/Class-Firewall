@@ -139,14 +139,20 @@ dotnet run   --project ClassFirewall.csproj -p:Platform=x64
 publish.bat
 ```
 
-输出 `publish\win-x64\`，**整个目录**拷到目标机，双击 `ClassFirewall.exe` 即可。
-实测约 **207 MB / 503 个文件**（.NET + Windows App SDK 全部自包含）。
+**默认单文件**：输出 `publish\ClassFirewall.exe`（约 **166 MB**，压缩后），拷这一个 exe 到目标机即可，
+无需 .NET、无需 Windows App Runtime。
 
-> WinUI 3 依赖原生 DLL（`Microsoft.ui.xaml.dll` 等），**做不到单文件 exe**。
-> 这是与旧 WinForms 版最大的发布差异：WinForms 版曾能打成单个 exe。
->
-> 想瘦身：把 csproj 里的 `WindowsAppSDKSelfContained` 和 `SelfContained` 改成 `false`，
-> 体积会降到几十 MB，但目标机必须预装 .NET 8 运行时和 Windows App Runtime。
+```bat
+publish.bat          :: 单文件
+publish.bat folder   :: 自包含文件夹（publish\win-x64\，约 207 MB / 503 文件）
+```
+
+单文件首次启动会把内容解压到 `%TEMP%\.net\ClassFirewall\`，所以第一次会慢几秒，之后正常。
+
+WinUI 3 的单文件有三个硬性前提（已写进 csproj）：`EnableMsixTooling=true`（把 resources.pri 嵌进 exe）、
+`WindowsPackageType=None`、`WindowsAppSdkUndockedRegFreeWinRTInitialize=true`（入口前设置
+`MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY`）；`IncludeAllContentForSelfExtract` 由 WinAppSDK 强制要求，
+它会让体积从约 43 MB 涨到 166 MB —— 这是目前官方支持的唯一单文件姿势。
 
 程序需要管理员权限（`app.manifest` 里 `requireAdministrator`），双击会弹 UAC。
 

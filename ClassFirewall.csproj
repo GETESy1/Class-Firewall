@@ -24,8 +24,23 @@
 
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
-    <EnableMsixTooling>false</EnableMsixTooling>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+
+    <!--
+      单文件发布（PublishSingleFile=true）的三个硬性前提，缺一个 WinAppSDK 就直接报错：
+        · EnableMsixTooling=true                    把 resources.pri 嵌进 exe
+        · WindowsPackageType=None                   只支持免打包（已是）
+        · WindowsAppSdkUndockedRegFreeWinRTInitialize=true
+                                                    在程序入口前设置
+                                                    MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY，
+                                                    让 WinRT 从解压目录加载原生 DLL
+      另外 IncludeAllContentForSelfExtract=true 也由 WinAppSDK 要求（DLL SxS 重定向）。
+    -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
+    <!-- 压缩单文件（EnableCompressionInSingleFile）必须用命令行 -p: 传：SDK 在 props 阶段就读取它，
+         在项目文件里赋值来不及。publish.bat 已经带上。 -->
 
     <!-- 自定义 Main（见 Program.cs），不要用 XAML 自动生成的入口点 -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
