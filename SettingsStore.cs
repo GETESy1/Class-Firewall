@@ -20,6 +20,9 @@ namespace ClassFirewall
 
         public string PasswordHash { get; set; } = "";
 
+        /// <summary>界面主题：0=跟随系统，1=浅色，2=深色（WinUI 版新增）</summary>
+        public AppTheme Theme { get; set; } = AppTheme.System;
+
         // ---- 以下字段已废弃，仅为了能读旧版本的 settings.json 而保留 ----
         // 它们对应的功能（DPI 深度包检查 / TUN 模式）已下线，
         // 读到 true 时会在日志里提示一次，不会影响运行。

@@ -1,143 +1,164 @@
-// ==================== PasswordDialog.cs ====================
 using System;
-using System.Drawing;
-using System.Windows.Forms;
+using System.Threading.Tasks;
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.System;
 
 namespace ClassFirewall
 {
     /// <summary>
-    /// 密码输入对话框。两种用法：
-    ///   · Verify —— 单个输入框，用来解锁
-    ///   · SetNew —— 两个输入框（新密码 + 确认），留空表示取消密码保护
-    ///
-    /// 界面全部用代码搭建，不占用 Designer 文件。
+    /// 密码输入对话框（独立小窗口）。两种用法：
+    ///   · VerifyAsync —— 单个输入框，用来解锁 / 退出程序
+    ///   · SetNewAsync  —— 两个输入框（新密码 + 确认），留空表示取消密码保护
     /// </summary>
-    internal sealed class PasswordDialog : Form
+    internal sealed class PasswordDialog : DialogWindow
     {
-        private readonly TextBox _first;
-        private readonly TextBox? _second;
-        private readonly Label _error;
+        private readonly PasswordBox _first;
+        private readonly PasswordBox? _second;
+        private readonly TextBlock _error;
         private readonly bool _allowEmpty;
+        private readonly bool _confirmMode;
+
+        private string? _result;
+        private bool _accepted;
 
         private PasswordDialog(string title, string prompt, bool confirmMode, bool allowEmpty)
+            : base(title, 420, confirmMode ? 300 : 250)
         {
             _allowEmpty = allowEmpty;
+            _confirmMode = confirmMode;
 
-            Text = title;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            StartPosition = FormStartPosition.CenterParent;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            ShowInTaskbar = false;
-            Font = new Font("Microsoft YaHei UI", 9F);
-            ClientSize = new Size(380, confirmMode ? 190 : 145);
+            BuildHeader(title, prompt);
 
-            var label = new Label
+            var body = new StackPanel { Spacing = 10, Margin = new Thickness(24, 16, 24, 0) };
+            Grid.SetRow(body, 2);
+
+            _first = new PasswordBox
             {
-                Text = prompt,
-                Location = new Point(16, 14),
-                Size = new Size(348, 36)
+                PasswordRevealMode = PasswordRevealMode.Peek,
+                PlaceholderText = confirmMode ? "新密码" : "请输入密码",
+                HorizontalAlignment = HorizontalAlignment.Stretch
             };
-
-            _first = new TextBox
-            {
-                Location = new Point(16, 54),
-                Size = new Size(348, 25),
-                UseSystemPasswordChar = true
-            };
+            _first.KeyDown += OnKeyDown;
+            body.Children.Add(_first);
 
             if (confirmMode)
             {
-                _second = new TextBox
+                _second = new PasswordBox
                 {
-                    Location = new Point(16, 88),
-                    Size = new Size(348, 25),
-                    UseSystemPasswordChar = true,
-                    PlaceholderText = "再输入一次确认"
+                    PasswordRevealMode = PasswordRevealMode.Peek,
+                    PlaceholderText = "再输入一次确认",
+                    HorizontalAlignment = HorizontalAlignment.Stretch
                 };
-                _first.PlaceholderText = "新密码";
+                _second.KeyDown += OnKeyDown;
+                body.Children.Add(_second);
             }
 
-            _error = new Label
+            _error = new TextBlock
             {
-                ForeColor = Color.Firebrick,
-                Location = new Point(16, confirmMode ? 116 : 82),
-                Size = new Size(348, 20),
-                Text = ""
+                FontSize = 12,
+                Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"],
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed
             };
+            body.Children.Add(_error);
 
-            var ok = new Button
-            {
-                Text = "确定",
-                DialogResult = DialogResult.OK,
-                Location = new Point(190, confirmMode ? 146 : 110),
-                Size = new Size(84, 30)
-            };
+            Layout.Children.Add(body);
 
-            var cancel = new Button
-            {
-                Text = "取消",
-                DialogResult = DialogResult.Cancel,
-                Location = new Point(280, confirmMode ? 146 : 110),
-                Size = new Size(84, 30)
-            };
+            BuildButtons("确定", "取消", OnAccept, Cancel);
 
-            Controls.AddRange(new Control[] { label, _first, _error, ok, cancel });
-            if (_second != null) Controls.Add(_second);
+            // Enter = 确定，Esc = 取消（问号框两个键都能用）
+            var enter = new KeyboardAccelerator { Key = VirtualKey.Enter };
+            enter.Invoked += (_, e) => { e.Handled = true; OnAccept(); };
+            Layout.KeyboardAccelerators.Add(enter);
 
-            AcceptButton = ok;
-            CancelButton = cancel;
+            var escape = new KeyboardAccelerator { Key = VirtualKey.Escape };
+            escape.Invoked += (_, e) => { e.Handled = true; Cancel(); };
+            Layout.KeyboardAccelerators.Add(escape);
 
-            // 自己接管"确定"，做非空/一致性校验后再放行
-            ok.Click += (_, e) =>
-            {
-                string first = _first.Text;
-                string? second = _second?.Text;
+            FirstInput = _first;
 
-                if (_second != null)
-                {
-                    if (first.Length == 0 && !_allowEmpty)
-                    {
-                        _error.Text = "密码不能为空";
-                        DialogResult = DialogResult.None;
-                        return;
-                    }
-                    if (!string.Equals(first, second, StringComparison.Ordinal))
-                    {
-                        _error.Text = "两次输入不一致";
-                        DialogResult = DialogResult.None;
-                        return;
-                    }
-                }
-                else if (first.Length == 0)
-                {
-                    _error.Text = "请输入密码";
-                    DialogResult = DialogResult.None;
-                }
-            };
-
-            Shown += (_, __) => _first.Focus();
+            AutomationProperties.SetName(_first, confirmMode ? "新密码" : "密码");
         }
 
-        /// <summary>弹出"输入密码"框。取消返回 null</summary>
-        public static string? Verify(IWin32Window? owner, string title = "需要密码",
+        private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key == VirtualKey.Enter)
+            {
+                e.Handled = true;
+                OnAccept();
+            }
+        }
+
+        private void OnAccept()
+        {
+            string first = _first.Password;
+            string? second = _second?.Password;
+
+            if (_confirmMode)
+            {
+                if (first.Length == 0 && !_allowEmpty)
+                {
+                    ShowError("密码不能为空");
+                    return;
+                }
+                if (!string.Equals(first, second, StringComparison.Ordinal))
+                {
+                    ShowError("两次输入不一致");
+                    return;
+                }
+            }
+            else if (first.Length == 0)
+            {
+                ShowError("请输入密码");
+                return;
+            }
+
+            _result = first;
+            _accepted = true;
+            CloseDialog();
+        }
+
+        private void ShowError(string text)
+        {
+            _error.Text = text;
+            _error.Visibility = Visibility.Visible;
+            _first.Focus(FocusState.Programmatic);
+            _first.SelectAll();
+        }
+
+        private void Cancel()
+        {
+            _accepted = false;
+            _result = null;
+            CloseDialog();
+        }
+
+        /// <summary>弹出「输入密码」框。取消返回 null</summary>
+        public static async Task<string?> VerifyAsync(Window? owner, string title = "需要密码",
             string prompt = "请输入解锁密码：")
         {
-            using var dlg = new PasswordDialog(title, prompt, confirmMode: false, allowEmpty: false);
-            return dlg.ShowDialog(owner) == DialogResult.OK ? dlg._first.Text : null;
+            var dlg = new PasswordDialog(title, prompt, confirmMode: false, allowEmpty: false);
+            dlg.AttachOwner(owner);
+            await dlg.ShowAsync();
+            return dlg._accepted ? dlg._result : null;
         }
 
         /// <summary>
-        /// 弹出"设置新密码"框。
+        /// 弹出「设置新密码」框。
         /// 返回 true 表示用户确认了；<paramref name="newPassword"/> 为空串表示取消密码保护。
         /// </summary>
-        public static bool SetNew(IWin32Window? owner, out string newPassword,
-            string prompt = "设置一个密码，之后打开本程序需要输入它才能解锁。\r\n（留空并确定 = 取消密码保护）")
+        public static async Task<(bool ok, string newPassword)> SetNewAsync(Window? owner,
+            string prompt = "设置一个密码，之后打开本程序需要输入它才能解锁。\n（留空并确定 = 取消密码保护）")
         {
-            using var dlg = new PasswordDialog("设置密码", prompt, confirmMode: true, allowEmpty: true);
-            bool ok = dlg.ShowDialog(owner) == DialogResult.OK;
-            newPassword = ok ? dlg._first.Text : "";
-            return ok;
+            var dlg = new PasswordDialog("设置密码", prompt, confirmMode: true, allowEmpty: true);
+            dlg.AttachOwner(owner);
+            await dlg.ShowAsync();
+            return (dlg._accepted, dlg._accepted ? dlg._result ?? "" : "");
         }
     }
 }

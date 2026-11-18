@@ -1,0 +1,308 @@
+<Window
+    x:Class="ClassFirewall.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClassFirewall"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    mc:Ignorable="d"
+    Title="Class Firewall — 班级网络防火墙">
+
+
+
+    <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" RowSpacing="0">
+        <Grid.Resources>
+            <ResourceDictionary>
+                <!-- 卡片 -->
+                <Style x:Key="CfCardStyle" TargetType="Border">
+                    <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                    <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <Setter Property="BorderThickness" Value="1" />
+                    <Setter Property="CornerRadius" Value="8" />
+                    <Setter Property="Padding" Value="16" />
+                </Style>
+
+                <!-- 卡片标题 -->
+                <Style x:Key="CfCardTitleStyle" TargetType="TextBlock">
+                    <Setter Property="FontSize" Value="14" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                </Style>
+
+                <!-- 次级说明文字 -->
+                <Style x:Key="CfHintStyle" TargetType="TextBlock">
+                    <Setter Property="FontSize" Value="12" />
+                    <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <Setter Property="TextWrapping" Value="Wrap" />
+                </Style>
+
+                <!-- 等宽文本（域名清单 / 日志） -->
+                <Style x:Key="CfMonoStyle" TargetType="TextBlock">
+                    <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Microsoft YaHei UI" />
+                    <Setter Property="FontSize" Value="12" />
+                    <Setter Property="IsTextSelectionEnabled" Value="True" />
+                </Style>
+            </ResourceDictionary>
+        </Grid.Resources>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ==================== 标题栏 ==================== -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0,12,0"
+              Background="Transparent">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Image x:Name="TitleBarIcon" Grid.Column="0" Width="18" Height="18"
+                   VerticalAlignment="Center" Margin="0,0,10,0" />
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="Class Firewall" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Text="·" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <TextBlock Text="班级网络防火墙" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            </StackPanel>
+
+            <Border x:Name="TitleBarBadge" Grid.Column="2" VerticalAlignment="Center"
+                    Padding="10,3" CornerRadius="10"
+                    Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Ellipse x:Name="TitleBarBadgeDot" Width="7" Height="7" VerticalAlignment="Center"
+                             Fill="{ThemeResource SystemFillColorCriticalBrush}" />
+                    <TextBlock x:Name="TitleBarBadgeText" Text="未启用" FontSize="11"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ==================== 主体 ==================== -->
+        <Grid Grid.Row="1" Padding="20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" MinWidth="340" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="2*" MinWidth="280" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- 总开关（横跨两栏） -->
+            <Border Grid.Row="0" Grid.ColumnSpan="3" Style="{StaticResource CfCardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="网站屏蔽" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock Style="{StaticResource CfHintStyle}"
+                                   Text="勾选要屏蔽的网站，勾选后立即生效。命中黑名单的域名会被解析到 127.0.0.1，网站打不开；其它域名正常上网。" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <FontIcon Glyph="&#xE774;" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="StatusText" Text="就绪" Style="{StaticResource CfHintStyle}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <ToggleSwitch x:Name="BlockToggle" Grid.Column="1" MinWidth="200"
+                                  Margin="16,0,0,0" VerticalAlignment="Center"
+                                  OnContent="已启用" OffContent="已关闭"
+                                  Header="总开关" />
+                </Grid>
+            </Border>
+
+            <!-- ==================== 左栏：站点选择 ==================== -->
+            <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CfCardStyle}" Padding="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Padding="16,14,12,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="选择要屏蔽的网站" Style="{StaticResource CfCardTitleStyle}" />
+                            <TextBlock x:Name="SiteCountText" Style="{StaticResource CfHintStyle}" Text="共 0 个站点" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <Button x:Name="SelectNoneButton" Content="全不选" Padding="10,4" FontSize="12" />
+                            <Button Content="全部解除" x:Name="ClearBtn" Padding="10,4" FontSize="12" />
+                        </StackPanel>
+                    </Grid>
+
+                    <ListView x:Name="SiteList" Grid.Row="1" SelectionMode="None"
+                              IsItemClickEnabled="False" Padding="4,0,20,8"
+                              ScrollViewer.HorizontalScrollMode="Disabled"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                          IsHitTestVisible="False"
+                                          MinWidth="0" Width="Auto"
+                                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                                    <CheckBox.Content>
+                                        <StackPanel Spacing="1">
+                                            <TextBlock Text="{Binding Name}" FontSize="13" />
+                                            <TextBlock Text="{Binding DomainHint}"
+                                                       FontSize="11"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </CheckBox.Content>
+                                </CheckBox>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="8,2,8,2" />
+                                <Setter Property="MinHeight" Value="0" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                    </ListView>
+                </Grid>
+            </Border>
+
+            <!-- ==================== 右栏：预览 + 日志 ==================== -->
+            <Grid Grid.Row="1" Grid.Column="2" RowSpacing="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- 域名预览 -->
+                <Border Grid.Row="0" Style="{StaticResource CfCardStyle}">
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Name="PreviewLabel" Text="当前屏蔽的域名"
+                                       Style="{StaticResource CfCardTitleStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="PreviewCount" Text="0 个"
+                                       Style="{StaticResource CfHintStyle}" />
+                        </Grid>
+
+                        <ScrollViewer Height="170" Padding="8,6"
+                                      Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                      CornerRadius="4">
+                            <TextBlock x:Name="PreviewText" Style="{StaticResource CfMonoStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Text="(还没有勾选任何网站)" />
+                        </ScrollViewer>
+
+                        <TextBlock x:Name="DohHintText" Style="{StaticResource CfHintStyle}"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 运行日志 -->
+                <Border Grid.Row="1" Style="{StaticResource CfCardStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="运行日志" Style="{StaticResource CfCardTitleStyle}" />
+                            <Button Grid.Column="1" x:Name="ClearLogButton" Content="清空"
+                                    Padding="8,2" FontSize="11" />
+                        </Grid>
+
+                        <ListView x:Name="LogList" Grid.Row="1" SelectionMode="None"
+                                  IsItemClickEnabled="False"
+                                  Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                  CornerRadius="4" Padding="8,4"
+                                  ScrollViewer.HorizontalScrollMode="Disabled"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Style="{StaticResource CfMonoStyle}"
+                                               TextWrapping="Wrap" Margin="0,1" />
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="MinHeight" Value="0" />
+                                    <Setter Property="Padding" Value="4,2" />
+                                    <Setter Property="Margin" Value="0" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                        </ListView>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ==================== 底部：选项 + 操作 ==================== -->
+        <Border Grid.Row="2" Padding="16,12,16,12"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 四个功能开关 -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ToggleSwitch Grid.Column="0" x:Name="AutoStartToggle"
+                                  OnContent="" OffContent=""
+                                  Header="开机自动启动" />
+
+                    <ToggleSwitch Grid.Column="1" x:Name="AutoBlockToggle"
+                                  OnContent="" OffContent=""
+                                  Header="启动时自动恢复上次的屏蔽（需配合自动启动）" />
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <ToggleSwitch Grid.Column="0" x:Name="DohToggle"
+                                  OnContent="" OffContent=""
+                                  Header="阻止浏览器加密 DNS（DoH，需重启浏览器）" />
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                        <Button x:Name="SettingsBtn" Content="设置" Padding="14,6" />
+                        <Button x:Name="FlushBtn" Content="刷新 DNS 缓存" Padding="14,6" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

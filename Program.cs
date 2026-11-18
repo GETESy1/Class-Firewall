@@ -2,51 +2,61 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Windows.Forms;
+using System.Threading;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 
 namespace ClassFirewall
 {
+    /// <summary>
+    /// 进程入口。自定义 Main 的原因：
+    ///   · 需要在 XAML 框架起来之前解析 <c>-silent</c>（开机自启用）；
+    ///   · 需要装好崩溃日志钩子，WinUI 3 的未处理异常不会自己落盘。
+    /// </summary>
     internal static class Program
     {
+        /// <summary>开机自启传入 -silent：直接进托盘，不弹任何窗口</summary>
         public static bool SilentMode { get; private set; }
 
-        private const int MaxAttempts = 5;
+        public static string[] StartupArgs { get; private set; } = Array.Empty<string>();
 
         private static readonly string CrashLog = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "ClassFirewall", "crash.log");
 
         [STAThread]
-        static void Main(string[] args)
+        private static void Main(string[] args)
         {
-            SilentMode = args.Any(a =>
-                a.Equals("-silent", StringComparison.OrdinalIgnoreCase));
+            StartupArgs = args ?? Array.Empty<string>();
+            SilentMode = StartupArgs.Any(a => a.Equals("-silent", StringComparison.OrdinalIgnoreCase));
 
             InstallCrashLogging();
 
-            ApplicationConfiguration.Initialize();
-
-            if (!SilentMode && !Unlock())
+            // 同一时间只允许一个实例（两个实例抢 53 端口只会互相打架）
+            if (!SingleInstance.TryAcquire())
                 return;
 
-            var form = new MainForm();
-            if (SilentMode)
-                form.WindowState = FormWindowState.Minimized;
+            WinRT.ComWrappersSupport.InitializeComWrappers();
 
-            Application.Run(form);
+            Application.Start(_ =>
+            {
+                var context = new DispatcherQueueSynchronizationContext(
+                    DispatcherQueue.GetForCurrentThread());
+                SynchronizationContext.SetSynchronizationContext(context);
+
+                new App();
+            });
         }
+
         private static void InstallCrashLogging()
         {
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
                 WriteCrash("AppDomain.UnhandledException", e.ExceptionObject as Exception);
 
-            Application.ThreadException += (_, e) =>
-                WriteCrash("WinForms ThreadException", e.Exception);
-
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            AppDomain.CurrentDomain.ProcessExit += (_, __) => SingleInstance.Release();
         }
 
-        private static void WriteCrash(string source, Exception? ex)
+        internal static void WriteCrash(string source, Exception? ex)
         {
             try
             {
@@ -64,34 +74,49 @@ namespace ClassFirewall
 
                 File.AppendAllText(CrashLog, sb.ToString(), new UTF8Encoding(false));
             }
-            catch {  }
+            catch { }
         }
-        private static bool Unlock()
+    }
+
+    /// <summary>命名互斥体实现的单实例锁。</summary>
+    internal static class SingleInstance
+    {
+        private const string MutexName = @"Local\ClassFirewall.SingleInstance";
+        private static Mutex? _mutex;
+        private static bool _owned;
+
+        public static bool TryAcquire()
         {
-            var settings = SettingsStore.Load();
-            if (!PasswordGate.IsConfigured(settings.PasswordHash))
-                return true;
-
-            for (int attempt = 1; attempt <= MaxAttempts; attempt++)
+            try
             {
-                string prompt = attempt == 1
-                    ? "本程序已设置密码，请输入以解锁："
-                    : $"密码不对，再试一次（第 {attempt}/{MaxAttempts} 次）：";
-
-                string? input = PasswordDialog.Verify(null, "Class Firewall 已锁定", prompt);
-                if (input == null) return false;                        // 点了取消
-
-                if (PasswordGate.Verify(input, settings.PasswordHash))
+                _mutex = new Mutex(initiallyOwned: false, MutexName);
+                try
+                {
+                    _owned = _mutex.WaitOne(TimeSpan.FromMilliseconds(200));
+                    return _owned;
+                }
+                catch (AbandonedMutexException)
+                {
+                    // 上一个实例非正常退出，这里也算拿到
+                    _owned = true;
                     return true;
+                }
             }
+            catch
+            {
+                // 拿不到互斥体不应该阻止程序启动
+                return true;
+            }
+        }
 
-            MessageBox.Show(
-                $"密码连续输错 {MaxAttempts} 次，程序退出。\n\n" +
-                "如果忘记了密码，可以用万能密码解锁（见 README 的「密码保护」一节）。",
-                "Class Firewall",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-            return false;
+        public static void Release()
+        {
+            try
+            {
+                if (_owned) _mutex?.ReleaseMutex();
+                _mutex?.Dispose();
+            }
+            catch { }
         }
     }
 }
