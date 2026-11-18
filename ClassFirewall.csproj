@@ -1,35 +1,106 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    WinUI 3 (Windows App SDK) 版 Class Firewall。
+
+    与原 WinForms 版的差异（发布相关）：
+      · WinUI 3 依赖原生 DLL，**无法打成真正的单文件 exe**，因此改为
+        「自包含文件夹发布」：publish.bat 输出一个可直接拷贝走的目录。
+      · WindowsPackageType=None → 免 MSIX、免安装，双击 exe 即用。
+      · WindowsAppSDKSelfContained=true → 目标电脑无需预装 Windows App Runtime。
+      · SelfContained=true → 目标电脑无需预装 .NET 运行时。
+  -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-	<ApplicationIcon>ico/app.ico</ApplicationIcon>
-	<Nullable>enable</Nullable>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>ClassFirewall</RootNamespace>
+    <AssemblyName>ClassFirewall</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>ico\app.ico</ApplicationIcon>
+
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+
+    <!--
+      单文件发布（PublishSingleFile=true）的三个硬性前提，缺一个 WinAppSDK 就直接报错：
+        · EnableMsixTooling=true                    把 resources.pri 嵌进 exe
+        · WindowsPackageType=None                   只支持免打包（已是）
+        · WindowsAppSdkUndockedRegFreeWinRTInitialize=true
+                                                    在程序入口前设置
+                                                    MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY，
+                                                    让 WinRT 从解压目录加载原生 DLL
+      另外 IncludeAllContentForSelfExtract=true 也由 WinAppSDK 要求（DLL SxS 重定向）。
+    -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
+    <!-- 压缩单文件（EnableCompressionInSingleFile）必须用命令行 -p: 传：SDK 在 props 阶段就读取它，
+         在项目文件里赋值来不及。publish.bat 已经带上。 -->
+
+    <!-- 自定义 Main（见 Program.cs），不要用 XAML 自动生成的入口点 -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+
+    <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>ClassFirewall</AssemblyName>
-    <RootNamespace>ClassFirewall</RootNamespace>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
     <Product>Class Firewall</Product>
     <AssemblyTitle>Class Firewall</AssemblyTitle>
-
-    <!-- ========== 单文件发布相关 ========== -->
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <!-- SelfContained=true：目标电脑无需预装 .NET 8 运行时 -->
-    <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
-    <!-- 压缩仅允许在 SelfContained=true 时使用，否则报 NETSDK1176 -->
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <DebugType>none</DebugType>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
-    <!-- ================================== -->
-
   </PropertyGroup>
 
-<ItemGroup>
-  <EmbeddedResource Include="ico\app.ico" />
-</ItemGroup>
+  <!--
+    RID / 自包含 / 平台目标：
+      · Debug 也要带 RuntimeIdentifier —— 否则 VS 里还原不会拉取
+        Microsoft.Windows.SDK.NET.Ref 的运行包，直接报 NETSDK1112。
+      · ARM64 走 win-arm64，其余走 win-x64。
+      · Release 才自包含（目标机免装 .NET 与 Windows App Runtime）。
+  -->
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <PlatformTarget Condition="'$(Platform)' == 'ARM64'">ARM64</PlatformTarget>
+    <PlatformTarget Condition="'$(PlatformTarget)' == ''">x64</PlatformTarget>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SelfContained>true</SelfContained>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <!--
+    在 Visual Studio 里能打开 / 能生成的关键补丁。
+
+    WinUI 3 的 XAML 编译目标（Microsoft.UI.Xaml.Markup.Compiler.interop.targets）
+    在「Full MSBuild + 有 VsInstallRoot」时会去 $(VsInstallRoot)\VC\Tools\MSVC
+    找 MSVC 版本；如果 VS 没装「使用 C++ 的桌面开发」/「Windows 应用程序开发」
+    工作负载，这个目录不存在，任务直接抛 DirectoryNotFoundException，
+    表现就是 VS 里项目加载失败 / 生成失败（命令行 dotnet build 反而正常，
+    因为 Core MSBuild 不会走这条分支）。
+
+    下面在检测不到 MSVC 时给 VCInstallPath32/64 一个占位值，让该目标跳过探测。
+    托管项目根本用不到 vcmeta，所以不影响编译结果。
+    装了 C++ 工作负载后 Condition 不成立，自动走 VS 原生路径。
+  -->
+  <PropertyGroup Condition="'$(VCInstallPath32)' == '' and '$(VCInstallPath64)' == ''
+                            and '$(VsInstallRoot)' != ''
+                            and !Exists('$(VsInstallRoot)\VC\Tools\MSVC')">
+    <VCInstallPath32>$(MSBuildProjectDirectory)\build\vcmeta-not-installed-32.dll</VCInstallPath32>
+    <VCInstallPath64>$(MSBuildProjectDirectory)\build\vcmeta-not-installed-64.dll</VCInstallPath64>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+  </ItemGroup>
+
+  <!-- 应用图标：作为 exe 图标并嵌入资源，托盘与窗口图标从 exe 里取 -->
+  <ItemGroup>
+    <Content Include="ico\app.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

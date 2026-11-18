@@ -1,0 +1,17 @@
+## 构建产物
+bin/
+obj/
+*.user
+
+## Visual Studio / Rider
+.vs/
+.idea/
+
+## 旧 WinForms 界面（仅作对照，不参与编译）
+legacy-winforms/
+
+## 备用的老版本实现
+archive/
+
+## 发布输出
+publish/
